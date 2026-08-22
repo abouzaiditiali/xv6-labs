@@ -308,11 +308,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       continue;   // physical page hasn't been allocated
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if (*pte & PTE_W) {
+        //keep track of COW pages originally writeable
+        *pte &= ~PTE_W;   //clear PTE_W bit in parent PTE
+        flags &= ~PTE_W;  //clear PTE_W bit in flags used to create child PTE
+    }
+     
+    //if((mem = kalloc()) == 0)
+    //  goto err;
+    //memmove(mem, (char*)pa, PGSIZE);
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      //kfree(mem);
       goto err;
     }
   }

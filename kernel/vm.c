@@ -306,26 +306,27 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       continue;   // page table entry hasn't been allocated
     if((*pte & PTE_V) == 0)
       continue;   // physical page hasn't been allocated
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
+
     if (*pte & PTE_W) {
-        //keep track of COW pages originally writeable
+        *pte |= PTE_COW;
         *pte &= ~PTE_W;   //clear PTE_W bit in parent PTE
-        flags &= ~PTE_W;  //clear PTE_W bit in flags used to create child PTE
     }
-     
-    //if((mem = kalloc()) == 0)
-    //  goto err;
-    //memmove(mem, (char*)pa, PGSIZE);
+
+    flags = PTE_FLAGS(*pte);
+    pa = PTE2PA(*pte);
     if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
-      //kfree(mem);
       goto err;
     }
+    
+    // increment reference count for physical page
+
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / PGSIZE, 0);  //clean all PTEs
+  // revert parent PTEs to original
+  // revert page reference counts to original
   return -1;
 }
 

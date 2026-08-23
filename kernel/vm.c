@@ -318,7 +318,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       goto err;
     }
     
-    // increment reference count for physical page
+    //increment reference count
+    acquire(&kref.lock);
+    uint idx = (pa - KERNBASE) / PGSIZE;
+    kref.page_ref_cnt[idx]++; 
+    release(&kref.lock);
 
   }
   return 0;
@@ -459,15 +463,46 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 uint64
 vmfault(pagetable_t pagetable, uint64 va, int read)
 {
-  uint64 mem;
+  uint64 mem, pa;
   struct proc *p = myproc();
+  uint flags;
 
   if (va >= p->sz)
     return 0;
   va = PGROUNDDOWN(va);
   if(ismapped(pagetable, va)) {
-    return 0;
+    pte_t *pte = walk(pagetable, va, 0);
+    if (*pte & PTE_COW) {
+        pa = PTE2PA(*pte);   
+
+        acquire(&kref.lock);
+        int idx = pa / PGSIZE;
+
+        if (kref.page_ref_cnt[idx] == 1) {
+            mem = pa;
+        } else {
+            mem = (uint64) kalloc();
+            if (mem == 0)
+                return 0;
+            memmove(mem, (char*)pa, PGSIZE);
+
+            kref.page_ref_cnt[idx]--;
+        }
+        release(&kref.lock);
+
+        flags = PTE_FLAGS(*pte);
+        flags |= PTE_W;
+        if (mappages(p->pagetable, va, PGSIZE, mem, flags) != 0) {
+            kfree((void *)mem);
+            return 0;
+        }
+
+        return mem;
+    }
+    // invalid 
+    // kill process
   }
+
   mem = (uint64) kalloc();
   if(mem == 0)
     return 0;

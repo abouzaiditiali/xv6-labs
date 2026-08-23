@@ -23,10 +23,16 @@ struct {
   struct run *freelist;
 } kmem;
 
+struct {
+  struct spinlock lock;
+  int page_ref_cnt[(PHYSTOP - KERNBASE) / PGSIZE];
+} kref;
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&kref.lock, "kref");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -51,7 +57,21 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // decrement page ref count, if > 0, return;
+  // decrement ref count, only continue if 0
+  acquire(&kref.lock);
+  
+  uint idx = ((uint64)pa - KERNBASE) / PGSIZE;
+  kref.page_ref_cnt[idx]--;
+  
+  if (kref.page_ref_cnt[idx] > 0) {
+    release(&kref.lock);
+    return;
+  } else if (kref.page_ref_cnt[idx] < 0) {
+    release(&kref.lock);
+    panic("kref");
+  }
+  
+  release(&kref.lock);
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -82,6 +102,10 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
 
   //set new page ref count to 1
+  acquire(&kref.lock);
+  uint idx = ((uint64)r - KERNBASE) / PGSIZE;
+  kref.page_ref_cnt[idx] = 1;
+  release(&kref.lock);
 
   return (void*)r;
 }

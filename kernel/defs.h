@@ -59,6 +59,10 @@ void            ireclaim(int);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+void            krefset(uint64, int);
+void            krefinc(uint64);
+void            krefdec(uint64);
+int             krefget(uint64);
 
 // log.c
 void            initlog(int, struct superblock*);

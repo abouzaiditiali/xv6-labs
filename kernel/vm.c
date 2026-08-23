@@ -299,7 +299,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,10 +318,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     }
     
     //increment reference count
-    acquire(&kref.lock);
-    uint idx = (pa - KERNBASE) / PGSIZE;
-    kref.page_ref_cnt[idx]++; 
-    release(&kref.lock);
+    krefinc(pa);
 
   }
   return 0;
@@ -475,20 +471,18 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
     if (*pte & PTE_COW) {
         pa = PTE2PA(*pte);   
 
-        acquire(&kref.lock);
-        int idx = pa / PGSIZE;
-
-        if (kref.page_ref_cnt[idx] == 1) {
+        if (krefget(pa) == 1) {
             mem = pa;
         } else {
             mem = (uint64) kalloc();
             if (mem == 0)
                 return 0;
-            memmove(mem, (char*)pa, PGSIZE);
-
-            kref.page_ref_cnt[idx]--;
+            memmove((void *) mem, (char*)pa, PGSIZE);
+            
+            // decrement ref count to pa
+            // mem gets ref count set to 1 from kalloc
+            krefdec(pa);
         }
-        release(&kref.lock);
 
         flags = PTE_FLAGS(*pte);
         flags |= PTE_W;

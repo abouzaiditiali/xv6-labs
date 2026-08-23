@@ -29,6 +29,48 @@ struct {
 } kref;
 
 void
+krefset(uint64 pa, int val)
+{
+  uint idx = (pa - KERNBASE) / PGSIZE;
+
+  acquire(&kref.lock);
+  kref.page_ref_cnt[idx] = val;
+  release(&kref.lock);
+}
+
+void
+krefinc(uint64 pa)
+{
+  uint idx = (pa - KERNBASE) / PGSIZE;
+
+  acquire(&kref.lock);
+  kref.page_ref_cnt[idx]++;
+  release(&kref.lock);
+}
+
+void
+krefdec(uint64 pa)
+{
+  uint idx = (pa - KERNBASE) / PGSIZE;
+
+  acquire(&kref.lock);
+  kref.page_ref_cnt[idx]--;
+  release(&kref.lock);
+}
+
+int
+krefget(uint64 pa)
+{
+  uint idx = (pa - KERNBASE) / PGSIZE;
+
+  acquire(&kref.lock);
+  int n = kref.page_ref_cnt[idx];
+  release(&kref.lock);
+
+  return n;
+}
+
+void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
@@ -58,20 +100,10 @@ kfree(void *pa)
     panic("kfree");
 
   // decrement ref count, only continue if 0
-  acquire(&kref.lock);
-  
-  uint idx = ((uint64)pa - KERNBASE) / PGSIZE;
-  kref.page_ref_cnt[idx]--;
-  
-  if (kref.page_ref_cnt[idx] > 0) {
-    release(&kref.lock);
+  krefdec((uint64)pa);
+  if (krefget((uint64)pa) > 0)
     return;
-  } else if (kref.page_ref_cnt[idx] < 0) {
-    release(&kref.lock);
-    panic("kref");
-  }
-  
-  release(&kref.lock);
+  // handle < 0
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -102,10 +134,7 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
 
   //set new page ref count to 1
-  acquire(&kref.lock);
-  uint idx = ((uint64)r - KERNBASE) / PGSIZE;
-  kref.page_ref_cnt[idx] = 1;
-  release(&kref.lock);
+  krefset((uint64)r, 1);
 
   return (void*)r;
 }

@@ -486,6 +486,8 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
 
         flags = PTE_FLAGS(*pte);
         flags |= PTE_W;
+        // same va will panic unless we set the Valid bit to 0
+        *pte &= ~PTE_V;  // will be updated to Valid in mappages
         if (mappages(p->pagetable, va, PGSIZE, mem, flags) != 0) {
             kfree((void *)mem);
             return 0;

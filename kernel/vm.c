@@ -351,6 +351,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
   pte_t *pte;
+  uint flags;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
@@ -365,12 +366,35 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     }
 
     pte = walk(pagetable, va0, 0);
-    // forbid copyout over read-only user text pages.
-    if((*pte & PTE_W) == 0)
+    
+    //handle COW
+    if (*pte & PTE_COW) {
+        if (krefget(pa0) != 1) {
+            pa0 = (uint64) kalloc();
+            if (pa0 == 0)
+                return -1;
+
+            // decrement ref count to pa
+            // mem gets ref count set to 1 from kalloc
+            krefdec(pa0);
+        }
+
+        flags = PTE_FLAGS(*pte);
+        flags |= PTE_W;
+        flags &= ~PTE_COW;
+        // same va will panic unless we set the Valid bit to 0
+        *pte &= ~PTE_V;  // will be updated to Valid in mappages
+        if (mappages(pagetable, va0, PGSIZE, pa0, flags) != 0) {
+            kfree((void *)pa0);
+            return -1;
+        }
+    } else if((*pte & PTE_W) == 0) {
+      // forbid copyout over read-only user text pages.
       return -1;
-      
+    }
+
     n = PGSIZE - (dstva - va0);
-    if(n > len)
+    if(n > len) // len is some number between 0 and 4095 when this check passes
       n = len;
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
@@ -486,6 +510,7 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
 
         flags = PTE_FLAGS(*pte);
         flags |= PTE_W;
+        flags &= ~PTE_COW;
         // same va will panic unless we set the Valid bit to 0
         *pte &= ~PTE_V;  // will be updated to Valid in mappages
         if (mappages(p->pagetable, va, PGSIZE, mem, flags) != 0) {

@@ -144,7 +144,42 @@ walkaddr(pagetable_t pagetable, uint64 va)
 #if defined(LAB_PGTBL) || defined(SOL_MMAP) || defined(SOL_COW)
 void
 vmprint(pagetable_t pagetable) {
-  // your code here
+    pagetable_t l2_pagetable, l1_pagetable, l0_pagetable;
+    pte_t pte;
+    uint64 cur_va = 0;
+
+    printf("page table %p\n", pagetable);
+    l2_pagetable = pagetable;
+    for(int i = 0; i < 512; i++){ // level 2
+        pte = l2_pagetable[i];
+        if (pte & PTE_V) {
+            // print L2 PTE
+            l1_pagetable = (pagetable_t)PTE2PA(pte);
+            printf(" ..%p: pte %p pa %p\n", (void *)cur_va, (void *)pte, (void *)l1_pagetable);
+            for(int j = 0; j < 512; j++){ // level 1
+                pte = l1_pagetable[j];
+                if (pte & PTE_V) {
+                    // print L1 PTE
+                    l0_pagetable = (pagetable_t)PTE2PA(pte);
+                    printf(" .. ..%p: pte %p pa %p\n", (void *)cur_va, (void *)pte, (void *)l0_pagetable);
+                    for(int k = 0; k < 512; k++){ // level 0
+                        pte = l0_pagetable[k];
+                        if (pte & PTE_V) {
+                            // print L0 PTE
+                            uint64 pa = PTE2PA(pte);
+                            printf(" .. .. ..%p: pte %p pa %p\n", (void *)cur_va, (void *)pte, (void *)pa);
+                        }
+                        cur_va += 4096;
+                    }
+                } else {
+                    cur_va += 4096 * 512;
+                }
+            }
+        } else {
+            cur_va += 4096 * 512 * 512;
+        }
+    }
+
 }
 #endif
 

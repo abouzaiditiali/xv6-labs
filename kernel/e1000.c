@@ -144,14 +144,46 @@ e1000_transmit(char *buf, int len)
 static void
 e1000_recv(void)
 {
-  //
-  // Your code here.
-  //
-  // Check for packets that have arrived from the e1000
-  // Create and deliver a buf for each packet (using net_rx()).
-  //
-  printf("rx\n"); 
+    // Check for packets that have arrived from the e1000
+    // Create and deliver a buf for each packet (using net_rx()).
 
+    //acquire(&e1000_lock); // ideally RX and TX should have separate locks
+    
+    for (;;) {
+        /* 
+        ring index at which the next waiting received packet is located
+        */
+        int off = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+        
+        /*
+        stop if descriptor is not done yet
+        */
+        if ((rx_ring[off].status & E1000_RXD_STAT_DD) == 0) {
+            return;
+        }
+        
+        /* 
+        deliver packet to network stack
+        */
+        net_rx((char *)rx_ring[off].addr, (int)rx_ring[off].length);
+
+        /*
+        allocate new buffer
+        set desc status bits to zero
+        */
+        rx_ring[off].addr = (uint64) kalloc();
+        if (!rx_ring[off].addr) {
+            panic("e1000_recv");
+        }
+        rx_ring[off].status = 0;
+
+        /*
+        update RDT register to be the index of the last descriptor processed
+        */
+        regs[E1000_RDT] = off; 
+    }
+
+    //release(&e1000_lock);
 }
 
 void

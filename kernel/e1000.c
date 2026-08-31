@@ -93,20 +93,52 @@ e1000_init(uint32 *xregs)
 int
 e1000_transmit(char *buf, int len)
 {
-  //
-  // Your code here.
-  //
-  // buf contains an ethernet frame; program it into
-  // the TX descriptor ring so that the e1000 sends it. Stash
-  // a pointer so that it can be freed after send completes.
-  //
-  // return 0 on success.
-  // return -1 on failure (e.g., there is no descriptor available)
-  // so that the caller knows to free buf.
-  //
+    // buf contains an ethernet frame; program it into
+    // the TX descriptor ring so that the e1000 sends it. Stash
+    // a pointer so that it can be freed after send completes.
+    // return 0 on success.
+    // return -1 on failure (e.g., there is no descriptor available)
+    // so that the caller knows to free buf.
 
-  
-  return 0;
+    acquire(&e1000_lock);
+
+    /* 
+    read TDT register which is the index into the TX ring where software can 
+    write the next descriptor.
+    this is basically asking E1000 for the TX ring index at which it is 
+    expecting the next packet descriptor.
+    */
+    int off = regs[E1000_TDT];
+    if ((tx_ring[off].status & E1000_TXD_STAT_DD) == 0) {
+        release(&e1000_lock);
+        return -1; // ring overflow, E1000 is not done yet with that desc
+    }
+
+    /* 
+    free buffer associated with the current descriptor 
+    this only frees one 4KiB page, buf is max 4KiB now so it's fine
+    */
+    if (tx_ring[off].addr != 0) {
+        kfree((void *)tx_ring[off].addr);
+    }
+    
+    /*
+    fill in descriptor with pointer to buffer and length + CMD flags
+    */
+    tx_ring[off].addr = (uint64)buf;
+    tx_ring[off].length = (uint16)len;
+    tx_ring[off].cmd = 0;
+    tx_ring[off].cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+
+    /*
+    update ring position
+    this also notifies E1000 that there is new transmit work
+    */
+    regs[E1000_TDT] = (off + 1) % TX_RING_SIZE;
+
+    release(&e1000_lock);
+
+    return 0;
 }
 
 static void
@@ -118,6 +150,7 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver a buf for each packet (using net_rx()).
   //
+  printf("rx\n"); 
 
 }
 
